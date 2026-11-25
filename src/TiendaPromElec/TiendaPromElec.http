@@ -1,6 +1,83 @@
-@TiendaPromElec_HostAddress = http://localhost:5152
+### Ejemplos de la API segura de PromElec.
+### Se ejecutan desde VS Code con la extensión "REST Client" (botón "Send Request" sobre cada petición).
+### Antes, arranca la API con: dotnet run --project src/TiendaPromElec
+### La contraseña del Admin está en tus secretos: dotnet user-secrets list --project src/TiendaPromElec
 
-GET {{TiendaPromElec_HostAddress}}/weatherforecast/
-Accept: application/json
+@host = https://localhost:7131
+@adminPassword = PEGA_AQUI_LA_CONTRASEÑA_DEL_ADMIN
 
-###
+### 1. Catálogo público (sin token) -> 200
+GET {{host}}/api/Product
+
+### 2. Pedidos sin token -> 401 (antes devolvía todos los pedidos)
+GET {{host}}/api/Order
+
+### 3. Login del Admin -> 200 con token
+# @name loginAdmin
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@promelec.local",
+  "password": "{{adminPassword}}"
+}
+
+### 4. Crear producto con precio negativo -> 400 (validación)
+POST {{host}}/api/Product
+Authorization: Bearer {{loginAdmin.response.body.token}}
+Content-Type: application/json
+
+{
+  "name": "Audífonos Prueba",
+  "description": "Producto de prueba",
+  "brand": "PromElec",
+  "price": -100,
+  "stock": 5,
+  "categoryId": 3
+}
+
+### 5. Borrar un producto que tiene pedidos -> 409 (ya no se borra el historial)
+DELETE {{host}}/api/Product/2
+Authorization: Bearer {{loginAdmin.response.body.token}}
+
+### 6. Registrar un Cliente -> 201 con token
+# @name registro
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "fullName": "Cliente Demo",
+  "email": "cliente.demo@promelec.test",
+  "password": "Demo#2026x",
+  "phone": "5512345678",
+  "address": "Av. Demo 123, CDMX"
+}
+
+### 7. El Cliente intenta crear un producto -> 403
+POST {{host}}/api/Product
+Authorization: Bearer {{registro.response.body.token}}
+Content-Type: application/json
+
+{
+  "name": "Hack",
+  "description": "No debería poder",
+  "brand": "X",
+  "price": 1,
+  "stock": 1,
+  "categoryId": 1
+}
+
+### 8. El Cliente crea un pedido mandando un total falso -> 201, el servidor calcula el total real
+POST {{host}}/api/Order
+Authorization: Bearer {{registro.response.body.token}}
+Content-Type: application/json
+
+{
+  "items": [ { "productId": 9, "quantity": 2 } ],
+  "totalAmount": 1,
+  "status": "Entregado"
+}
+
+### 9. El Cliente intenta ver el pedido 1 (de otro cliente) -> 403
+GET {{host}}/api/Order/1
+Authorization: Bearer {{registro.response.body.token}}

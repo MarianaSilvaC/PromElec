@@ -4,20 +4,33 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- H-05: identificador del almacén de secretos de desarrollo (dotnet user-secrets) -->
+    <UserSecretsId>promelec-tienda-api-secrets</UserSecretsId>
+    <!-- Comentarios XML para documentar la API en Swagger -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
+  <!--
+    H-04: versiones EXACTAS y actualizadas de la línea 8.0 (antes: Version="8", que resolvía a 8.0.0).
+    Se eliminaron Microsoft.VisualStudio.Web.CodeGeneration.Design (herramienta de scaffolding
+    que arrastraba NuGet.Packaging con vulnerabilidad crítica) y Microsoft.EntityFrameworkCore.Tools.
+  -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8">
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.34" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.34" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.34" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.34">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="8" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+  </ItemGroup>
+
+  <!-- Permite que el proyecto de pruebas de integración use WebApplicationFactory<Program> -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TiendaPromElec.IntegrationTests" />
+    <InternalsVisibleTo Include="TiendaPromElec.UnitTests" />
   </ItemGroup>
 
 </Project>

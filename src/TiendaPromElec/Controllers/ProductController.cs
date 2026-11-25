@@ -1,114 +1,115 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ProductApi.Models;
+using TiendaPromElec.Dtos;
+using TiendaPromElec.Security;
+using TiendaPromElec.Services;
 
 namespace TiendaPromElec.Controllers
 {
+    /// <summary>
+    /// Catálogo de productos.
+    /// Consultar es público; crear, modificar y borrar es solo para el rol Admin (H-01).
+    /// </summary>
     [Route("api/[controller]")]
     [ApiController]
+    [Produces("application/json")]
     public class ProductController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly IProductService _productService;
         private readonly ILogger<ProductController> _logger;
 
-        public ProductController(AppDbContext context, ILogger<ProductController> logger)
+        public ProductController(IProductService productService, ILogger<ProductController> logger)
         {
-            _context = context;
-            _logger = logger; // Initialize the logger if needed
+            _productService = productService;
+            _logger = logger;
         }
 
-        // GET: api/Product
+        /// <summary>Lista todos los productos (público).</summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Product>>> GetProducts()
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(IEnumerable<ProductDto>), StatusCodes.Status200OK)]
+        public async Task<ActionResult<IEnumerable<ProductDto>>> GetProducts()
         {
-            return await _context.Products.ToListAsync();
+            return Ok(await _productService.GetAllAsync());
         }
 
-        // GET: api/Product/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Product>> GetProduct(long id)
+        /// <summary>Consulta un producto por su id (público).</summary>
+        [HttpGet("{id:long}")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<ProductDto>> GetProduct(long id)
         {
-            // Usamos LogInformation para registrar un evento de rutina
-            _logger.LogInformation("Iniciando búsqueda del producto con ID: {ProductoId}", id);
-
-            var product = await _context.Products.FindAsync(id);
-
-            if (product == null)
+            var product = await _productService.GetByIdAsync(id);
+            if (product is null)
             {
-                // Usamos LogWarning para registrar un evento de advertencia
-                _logger.LogWarning("Producto con ID {ProductoId} no encontrado", id);
+                _logger.LogInformation("Producto con ID {ProductoId} no encontrado.", id);
                 return NotFound();
             }
-            _logger.LogInformation("Producto con ID: {ProductoId} encontrado exitosamente.", id);
-            return product;
+
+            return Ok(product);
         }
 
-        // PUT: api/Product/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutProduct(long id, Product product)
+        /// <summary>Crea un producto (solo Admin).</summary>
+        [HttpPost]
+        [Authorize(Policy = Policies.SoloAdmin)]
+        [ProducesResponseType(typeof(ProductDto), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<ActionResult<ProductDto>> PostProduct(ProductInputDto input)
         {
-            if (id != product.Id)
+            // [ApiController] ya valida el modelo; esta comprobación también protege al controlador
+            // cuando se usa fuera del pipeline de ASP.NET (por ejemplo, en pruebas unitarias).
+            if (!ModelState.IsValid)
             {
-                return BadRequest();
+                return BadRequest(ModelState);
             }
 
-            _context.Entry(product).State = EntityState.Modified;
+            var created = await _productService.CreateAsync(input);
 
-            try
+            // H-13: registro de acciones administrativas.
+            _logger.LogInformation("Admin {User} creó el producto {ProductoId}.", User.Identity?.Name, created.Id);
+            return CreatedAtAction(nameof(GetProduct), new { id = created.Id }, created);
+        }
+
+        /// <summary>Actualiza un producto (solo Admin).</summary>
+        [HttpPut("{id:long}")]
+        [Authorize(Policy = Policies.SoloAdmin)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> PutProduct(long id, ProductInputDto input)
+        {
+            if (!ModelState.IsValid)
             {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!ProductExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
+                return BadRequest(ModelState);
             }
 
+            if (!await _productService.UpdateAsync(id, input))
+            {
+                return NotFound();
+            }
+
+            _logger.LogInformation("Admin {User} actualizó el producto {ProductoId}.", User.Identity?.Name, id);
             return NoContent();
         }
 
-        // POST: api/Product
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPost]
-        public async Task<ActionResult<Product>> PostProduct(Product product)
-        {
-            _context.Products.Add(product);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction("GetProduct", new { id = product.Id }, product);
-        }
-
-        // DELETE: api/Product/5
-        [HttpDelete("{id}")]
+        /// <summary>Elimina un producto (solo Admin). Responde 409 si el producto tiene pedidos (H-15).</summary>
+        [HttpDelete("{id:long}")]
+        [Authorize(Policy = Policies.SoloAdmin)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> DeleteProduct(long id)
         {
-            var product = await _context.Products.FindAsync(id);
-            if (product == null)
+            if (!await _productService.DeleteAsync(id))
             {
                 return NotFound();
             }
 
-            _context.Products.Remove(product);
-            await _context.SaveChangesAsync();
-
+            _logger.LogWarning("Admin {User} eliminó el producto {ProductoId}.", User.Identity?.Name, id);
             return NoContent();
-        }
-
-        private bool ProductExists(long id)
-        {
-            return _context.Products.Any(e => e.Id == id);
         }
     }
 }

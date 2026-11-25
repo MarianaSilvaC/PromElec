@@ -1,0 +1,36 @@
+@page
+@model TiendaPromElec.Pages.ContactoModel
+@{
+    ViewData["Title"] = "Contacto";
+}
+
+<h1>Contacto</h1>
+<p class="text-muted">
+    Este formulario está protegido contra CSRF: incluye un token antiforgery oculto y una cookie
+    <code>SameSite=Strict</code>. Un envío sin el token se rechaza con 400.
+</p>
+
+@if (Model.Enviado)
+{
+    <div class="alert alert-success">¡Gracias! Recibimos tu mensaje.</div>
+}
+
+@* El tag helper <form method="post"> agrega solo el campo oculto __RequestVerificationToken (H-09). *@
+<form method="post" class="col-md-6">
+    <div class="mb-3">
+        <label asp-for="Input.Nombre" class="form-label">Nombre</label>
+        <input asp-for="Input.Nombre" class="form-control" />
+        <span asp-validation-for="Input.Nombre" class="text-danger"></span>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.Correo" class="form-label">Correo</label>
+        <input asp-for="Input.Correo" class="form-control" />
+        <span asp-validation-for="Input.Correo" class="text-danger"></span>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.Mensaje" class="form-label">Mensaje</label>
+        <textarea asp-for="Input.Mensaje" class="form-control" rows="4"></textarea>
+        <span asp-validation-for="Input.Mensaje" class="text-danger"></span>
+    </div>
+    <button type="submit" class="btn btn-primary">Enviar</button>
+</form>

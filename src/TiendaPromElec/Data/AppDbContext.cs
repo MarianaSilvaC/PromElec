@@ -1,24 +1,50 @@
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace ProductApi.Models
 {
-    public class AppDbContext : DbContext
+    /// <summary>
+    /// H-01: ahora hereda de IdentityDbContext, que agrega las tablas de usuarios y roles
+    /// (AspNetUsers, AspNetRoles, AspNetUserRoles, etc.).
+    /// </summary>
+    public class AppDbContext : IdentityDbContext<ApplicationUser>
     {
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {
         }
 
-        public DbSet<Category> Categories { get; set; }
-        public DbSet<Product> Products { get; set; }
-        public DbSet<Customer> Customers { get; set; }
-        public DbSet<Order> Orders { get; set; }
-        public DbSet<OrderDetail> OrderDetails { get; set; }
+        public DbSet<Category> Categories => Set<Category>();
+        public DbSet<Product> Products => Set<Product>();
+        public DbSet<Customer> Customers => Set<Customer>();
+        public DbSet<Order> Orders => Set<Order>();
+        public DbSet<OrderDetail> OrderDetails => Set<OrderDetail>();
 
-        
+        protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+        {
+            // Todos los montos se guardan como decimal(18,2), igual que en la migración original.
+            configurationBuilder.Properties<decimal>().HavePrecision(18, 2);
+        }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            // Configura las tablas de Identity. Debe ir primero.
             base.OnModelCreating(modelBuilder);
+
+            // H-15: borrar un producto ya NO borra en cascada las líneas de los pedidos históricos.
+            // Con Restrict, la base de datos rechaza el borrado si el producto tiene pedidos.
+            modelBuilder.Entity<OrderDetail>()
+                .HasOne(od => od.Product)
+                .WithMany()
+                .HasForeignKey(od => od.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Cada usuario Cliente apunta a su registro de Customer.
+            modelBuilder.Entity<ApplicationUser>()
+                .HasOne(u => u.Customer)
+                .WithMany()
+                .HasForeignKey(u => u.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // Configuración de relaciones (opcional si se usan atributos, pero es buena práctica)
 

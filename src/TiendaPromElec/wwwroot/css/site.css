@@ -1,0 +1,4 @@
+/* Estilos propios en un archivo (y no en atributos style="") para cumplir la Content-Security-Policy (H-10). */
+.producto-img {
+    height: 200px;
+}

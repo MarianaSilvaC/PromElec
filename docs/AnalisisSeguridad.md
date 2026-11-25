@@ -4,6 +4,7 @@
 **Sistema analizado:** Web API `TiendaPromElec` (ASP.NET Core 8, Entity Framework Core 8, SQL Server Express), versión original entregada por PromElec
 **Fecha del análisis:** 24 de noviembre de 2026
 **Referencia principal:** [OWASP Top 10:2025](https://owasp.org/Top10/2025/), con su equivalente en [OWASP Top 10:2021](https://owasp.org/Top10/)
+**Estado:** las 16 correcciones se implementaron el 25 de noviembre de 2026 (Fase 3). La verificación está en la sección 10.
 
 ---
 
@@ -68,22 +69,22 @@ No todo estaba mal. Estos controles del código original son correctos y se cons
 
 | ID | Hallazgo | OWASP 2025 | OWASP 2021 | Severidad | Estado |
 |---|---|---|---|---|---|
-| H-01 | La API no tiene autenticación ni autorización | A01, A07 | A01, A07 | Crítica | Pendiente (Fase 3) |
-| H-02 | Cualquiera puede ver los pedidos de cualquier cliente (IDOR) | A01 | A01 | Alta | Pendiente (Fase 3) |
-| H-03 | *Overposting*: el cliente controla el total, el estado y el cliente del pedido | A06, A08 | A04, A08 | Alta | Pendiente (Fase 3) |
-| H-04 | 12 dependencias con vulnerabilidades conocidas (1 crítica) | A03 | A06 | Alta | Pendiente (Fase 3) |
-| H-05 | Cadena de conexión en `appsettings.json` y certificado de SQL sin validar | A02, A04 | A05, A02 | Media | Pendiente (Fase 3) |
-| H-06 | HTTPS no forzado: sin HSTS y con perfil `http` por defecto | A04 | A02 | Media | Pendiente (Fase 3) |
-| H-07 | Sin validación de datos de entrada | A05 | A03 | Media | Pendiente (Fase 3) |
-| H-08 | Sin política CORS definida | A02 | A05 | Baja | Pendiente (Fase 3) |
-| H-09 | Protección CSRF y cookies SameSite sin configurar | A01 | A01 | Media | Pendiente (Fase 3) |
-| H-10 | Faltan cabeceras de seguridad y se expone `Server: Kestrel` | A02 | A05 | Media | Pendiente (Fase 3) |
-| H-11 | Superficie innecesaria: endpoint de plantilla, `AllowedHosts: *` y paquetes de *scaffolding* | A02 | A05 | Baja | Pendiente (Fase 3) |
-| H-12 | Bootstrap se carga de un CDN sin verificación de integridad (SRI) | A08 | A08 | Baja | Pendiente (Fase 3) |
-| H-13 | No se registran eventos de seguridad | A09 | A09 | Media | Pendiente (Fase 3) |
-| H-14 | Sin límite de intentos ni política de contraseñas | A07 | A07 | Media | Pendiente (Fase 3) |
-| H-15 | Borrar un producto borra en cascada el historial de pedidos | A06 | A04 | Alta | Pendiente (Fase 3) |
-| H-16 | Manejo de excepciones incompleto | A10 | A05 | Baja | Pendiente (Fase 3) |
+| H-01 | La API no tiene autenticación ni autorización | A01, A07 | A01, A07 | Crítica | Corregido |
+| H-02 | Cualquiera puede ver los pedidos de cualquier cliente (IDOR) | A01 | A01 | Alta | Corregido |
+| H-03 | *Overposting*: el cliente controla el total, el estado y el cliente del pedido | A06, A08 | A04, A08 | Alta | Corregido |
+| H-04 | 12 dependencias con vulnerabilidades conocidas (1 crítica) | A03 | A06 | Alta | Corregido |
+| H-05 | Cadena de conexión en `appsettings.json` y certificado de SQL sin validar | A02, A04 | A05, A02 | Media | Corregido |
+| H-06 | HTTPS no forzado: sin HSTS y con perfil `http` por defecto | A04 | A02 | Media | Corregido |
+| H-07 | Sin validación de datos de entrada | A05 | A03 | Media | Corregido |
+| H-08 | Sin política CORS definida | A02 | A05 | Baja | Corregido |
+| H-09 | Protección CSRF y cookies SameSite sin configurar | A01 | A01 | Media | Corregido |
+| H-10 | Faltan cabeceras de seguridad y se expone `Server: Kestrel` | A02 | A05 | Media | Corregido |
+| H-11 | Superficie innecesaria: endpoint de plantilla, `AllowedHosts: *` y paquetes de *scaffolding* | A02 | A05 | Baja | Corregido |
+| H-12 | Bootstrap se carga de un CDN sin verificación de integridad (SRI) | A08 | A08 | Baja | Corregido |
+| H-13 | No se registran eventos de seguridad | A09 | A09 | Media | Corregido |
+| H-14 | Sin límite de intentos ni política de contraseñas | A07 | A07 | Media | Corregido |
+| H-15 | Borrar un producto borra en cascada el historial de pedidos | A06 | A04 | Alta | Corregido |
+| H-16 | Manejo de excepciones incompleto | A10 | A05 | Baja | Corregido |
 
 ---
 
@@ -165,7 +166,7 @@ No todo estaba mal. Estos controles del código original son correctos y se cons
 | System.IdentityModel.Tokens.Jwt | 6.24.0 | Moderada | [GHSA-59j7-ghrg-fj52](https://github.com/advisories/GHSA-59j7-ghrg-fj52) |
 
 - **Impacto:** el sistema hereda fallas públicas y documentadas, para las que ya existen herramientas de ataque.
-- **Corrección:** actualizar los paquetes a la última versión de parche de la línea 8.0 con versiones exactas; quitar `CodeGeneration.Design` y el manifiesto de herramientas `.config/dotnet-tools.json`; si algún transitivo sigue vulnerable, fijar su versión corregida de forma explícita.
+- **Corrección:** actualizar los paquetes a la última versión de parche de la línea 8.0 (**8.0.34**) con versiones exactas; quitar `CodeGeneration.Design` y `EntityFrameworkCore.Tools`; reemplazar el manifiesto de herramientas por uno con solo `dotnet-ef` 8.0.34, en la raíz del repositorio. Si algún paquete transitivo siguiera vulnerable, se fijaría su versión corregida de forma explícita (no fue necesario).
 - **Verificación:** `dotnet list package --vulnerable --include-transitive` debe reportar **cero** paquetes vulnerables.
 
 ### H-05 · Cadena de conexión en `appsettings.json` y certificado de SQL sin validar
@@ -199,7 +200,7 @@ No todo estaba mal. Estos controles del código original son correctos y se cons
 - **Corrección:**
   - Perfil `https` por defecto en desarrollo.
   - `UseHsts()` fuera de desarrollo, con `Strict-Transport-Security` de 1 año.
-  - El validador JWT exige HTTPS (`RequireHttpsMetadata`) fuera de desarrollo.
+  - Las cookies (antiforgery) solo viajan por HTTPS (`Secure`, ver H-09).
   - En el despliegue, **Nginx** recibe el tráfico en 443 con TLS, redirige el puerto 80 a 443 y reenvía al contenedor. La API lee `X-Forwarded-Proto` (*Forwarded Headers*) para saber que la conexión original era HTTPS.
 - **Verificación:** una petición HTTP recibe una redirección 307/308 a HTTPS, y la respuesta HTTPS incluye `Strict-Transport-Security`.
 
@@ -257,7 +258,7 @@ No todo estaba mal. Estos controles del código original son correctos y se cons
   - `appsettings.json:8`: `AllowedHosts: "*"` acepta cualquier encabezado `Host`.
   - `TiendaPromElec.csproj:19` y `.config/dotnet-tools.json` contienen herramientas de generación de código que no deben ir a producción.
 - **Corrección:** eliminar `WeatherForecast`; limitar `AllowedHosts` a los dominios reales en la configuración de producción; quitar las herramientas de *scaffolding*.
-- **Verificación:** `GET /WeatherForecast` responde 404.
+- **Verificación:** `GET /WeatherForecast` con token responde 404 (el endpoint ya no existe). Sin token responde 401: con la política de denegar por defecto, la API no le dice a un usuario anónimo si una ruta existe o no.
 
 ### H-12 · Bootstrap se carga de un CDN sin verificación de integridad (SRI)
 
@@ -315,7 +316,7 @@ Todas las correcciones se implementan en la **Fase 3** dentro de `src/TiendaProm
 |---|---|---|
 | **Políticas de autorización** | H-01, H-02, H-15 | Identity + JWT, roles Admin y Cliente, política *fallback* que deniega por defecto, políticas `SoloAdmin` y `SoloCliente`, y control de propiedad de los pedidos. |
 | **CORS seguro** | H-08 | Política `PromElecCors` con lista blanca de orígenes, métodos y cabeceras. |
-| **Forzado de HTTPS** | H-06 | Perfil https por defecto, `UseHttpsRedirection`, `UseHsts`, JWT con `RequireHttpsMetadata` y TLS en Nginx. |
+| **Forzado de HTTPS** | H-06 | Perfil https por defecto, `UseHttpsRedirection`, `UseHsts`, cookies `Secure` y TLS en Nginx. |
 | **Contraseñas fuera de archivos de configuración** | H-05 | User Secrets en desarrollo y variables de entorno en Docker; `.env` fuera de git; la API no arranca si falta un secreto. |
 | **Autenticación** (guía) | H-01, H-14 | Registro y login con JWT, política de contraseñas, *lockout* y *rate limiting*. |
 | **CSRF: tokens antiforgery y cookies SameSite** (guía) | H-09 | Antiforgery en formularios Razor, cookies `SameSite=Strict` + `Secure` + `HttpOnly`, y API con JWT en cabecera. |
@@ -337,7 +338,7 @@ Pruebas hechas el 24/11/2026 contra `http://localhost:5152`, con la API original
 | 6 | `POST /api/Order` con `totalAmount: 1` | **400: The Items/Customer field is required** | El total lo calcula el servidor | H-03 |
 | 7 | `GET /` (cabeceras) | Sin cabeceras de seguridad; `Server: Kestrel` | Cabeceras de seguridad presentes, sin `Server` | H-10 |
 | 8 | `GET /api/Product` con `Origin: https://evil.com` | Sin cabeceras CORS | Sin cabeceras CORS (se mantiene tras la corrección) | H-08 |
-| 9 | `GET /WeatherForecast` | **200** | 404 (endpoint eliminado) | H-11 |
+| 9 | `GET /WeatherForecast` | **200** | 404 con token / 401 sin token (endpoint eliminado) | H-11 |
 | 10 | `dotnet list package --vulnerable` | **12 paquetes vulnerables** | 0 | H-04 |
 | 11 | `dotnet build --no-incremental` | 0 errores, 9 advertencias CS8618 | 0 errores, 0 advertencias | H-03 |
 
@@ -373,7 +374,65 @@ dotnet list package --vulnerable --include-transitive
 
 ---
 
-## 9. Referencias
+## 9. Dónde quedó cada corrección
+
+Todas las rutas son relativas a `src/TiendaPromElec/`.
+
+| Hallazgo | Archivos |
+|---|---|
+| H-01 Autenticación y autorización | `Program.cs` (Identity, JWT, políticas y *fallback*), `Controllers/AuthController.cs`, `Services/AuthService.cs`, `Services/TokenService.cs`, `[Authorize]` y `[AllowAnonymous]` en controladores y páginas |
+| H-02 IDOR | `Controllers/OrderController.cs` (el cliente sale del token), `Services/OrderService.cs` (`GetOrderAsync` responde 403) |
+| H-03 *Overposting* | `Dtos/ProductDtos.cs`, `Dtos/OrderDtos.cs`, `Services/ProductService.cs`, `Services/OrderService.cs` (`CreateOrderAsync` calcula el total) |
+| H-04 Dependencias | `TiendaPromElec.csproj` (8.0.34), `../../.config/dotnet-tools.json` |
+| H-05 Secretos | `appsettings.json` (sin secretos), `<UserSecretsId>` en el `.csproj`, `Security/JwtSettings.cs` (`ValidateOnStart`), `Program.cs` (error si falta la cadena de conexión), `Data/DesignTimeDbContextFactory.cs` |
+| H-06 HTTPS | `Program.cs` (`AddHsts`, `UseHsts`, `UseHttpsRedirection`), `Properties/launchSettings.json` (perfil https primero) |
+| H-07 Validación | Atributos `[Required]`, `[StringLength]`, `[Range]` y `[Url]` en `Dtos/` |
+| H-08 CORS | `Program.cs` (política `PromElecCors`), `Cors:AllowedOrigins` en `appsettings*.json` |
+| H-09 CSRF | `Program.cs` (`AddAntiforgery`, `CookiePolicyOptions`, `UseCookiePolicy`), `Pages/Contacto.cshtml` |
+| H-10 Cabeceras | `Infrastructure/SecurityHeadersMiddleware.cs`, `Program.cs` (`AddServerHeader = false`) |
+| H-11 Superficie | `WeatherForecast` eliminado, `AllowedHosts` en `appsettings.json`, paquetes de *scaffolding* eliminados |
+| H-12 SRI | `Pages/Shared/_Layout.cshtml` (`integrity`), `wwwroot/css/site.css` (sin estilos en línea, por la CSP) |
+| H-13 Registro de eventos | `Program.cs` (`JwtBearerEvents` para 401 y 403), `Services/AuthService.cs`, controladores, `Infrastructure/GlobalExceptionHandler.cs` |
+| H-14 Fuerza bruta | `Program.cs` (contraseñas, *lockout*, `AddRateLimiter`), `[EnableRateLimiting]` en `AuthController` |
+| H-15 Historial | `Data/AppDbContext.cs` (`OnDelete(Restrict)`), migración `AgregarIdentityYProteccionHistorial`, `ProductService.DeleteAsync` (409) |
+| H-16 Excepciones | `Infrastructure/GlobalExceptionHandler.cs`, `Exceptions/AppExceptions.cs`, `Program.cs` (`AddExceptionHandler`, `UseExceptionHandler`) |
+
+---
+
+## 10. Verificación de las correcciones (antes y después)
+
+Pruebas manuales hechas el 25/11/2026 contra la API corregida (`https://localhost:7299`, entorno Development) con `curl`, más una revisión en el navegador. Las pruebas automatizadas de las Fases 4 y 5 repiten estos casos.
+
+| Prueba | Antes (original) | Después (corregido) | Hallazgo |
+|---|---|---|---|
+| Petición por `http://` | Se atendía por HTTP | **307** redirección a HTTPS | H-06 |
+| `GET /api/Product` sin token | 200 | 200 (el catálogo sigue siendo público) | — |
+| `GET /api/Order` sin token | **200 con todos los pedidos** | **401** | H-01, H-02 |
+| `DELETE /api/Product/999` sin token | **404** (sin pedir credenciales) | **401** | H-01 |
+| Token inválido | (no había tokens) | **401** | H-01 |
+| Login del Admin / contraseña incorrecta | (no había login) | 200 con token / **401** | H-01, H-14 |
+| `POST /api/Product` con precio negativo (Admin) | 400 por Category | **400** por el precio | H-07 |
+| `POST` y `PUT` de producto válidos (Admin) | **400 siempre** | 201 / 204 | H-03 |
+| `DELETE` de un producto con pedidos (Admin) | Borraba el historial en cascada | **409 Conflict** | H-15 |
+| Registro con contraseña débil / correo repetido | (no había registro) | **400** / **409** | H-14 |
+| Cliente crea un pedido con `totalAmount: 1` | 400 siempre | 201 con el total **calculado por el servidor** (2400.00) y estado Pendiente | H-03 |
+| Pedido con más piezas que las existencias | (no se validaba) | **400** | H-03 |
+| Cliente intenta crear o borrar productos | Cualquiera podía | **403** | H-01 |
+| Cliente pide un pedido de otro cliente | Cualquiera podía | **403** | H-02 |
+| Cabeceras de seguridad | Ninguna; `Server: Kestrel` | `X-Content-Type-Options`, `X-Frame-Options`, CSP, `Referrer-Policy`, `Permissions-Policy`; sin `Server` | H-10 |
+| `GET /WeatherForecast` | 200 | 404 con token / 401 sin token | H-11 |
+| CORS desde `https://evil.com` | Sin cabeceras CORS | Sin cabeceras CORS | H-08 |
+| CORS desde un origen permitido | (sin política) | `Access-Control-Allow-Origin` presente | H-08 |
+| `POST /Contacto` sin / con token antiforgery | (no existía) | **400** / 200; cookie con `SameSite=Strict` | H-09 |
+| Bootstrap con SRI y CSP en el navegador | Sin SRI ni CSP | Carga correcta y sin errores de CSP en la consola | H-10, H-12 |
+| `dotnet list package --vulnerable` | **12 paquetes vulnerables** | **0** | H-04 |
+| `dotnet build` | 9 advertencias CS8618 | **0 advertencias** | H-03 |
+| Log al rechazar una petición | Sin registros de seguridad | Registra cada 401, 403, login y cambio del Admin, sin contraseñas ni tokens | H-13 |
+| Error de negocio (409) | 500 sin formato | ProblemDetails con el código correcto, sin trazas | H-16 |
+
+---
+
+## 11. Referencias
 
 - [OWASP Top 10:2025](https://owasp.org/Top10/2025/)
 - [OWASP Top 10:2021](https://owasp.org/Top10/)

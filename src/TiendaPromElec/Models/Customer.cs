@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace ProductApi.Models
 {
     public class Customer
@@ -9,6 +7,6 @@ namespace ProductApi.Models
         public required string Email { get; set; }
         public required string Phone { get; set; }
         public required string Address { get; set; }
-        public ICollection<Order> Orders { get; set; }
+        public ICollection<Order> Orders { get; set; } = new List<Order>();
     }
 }

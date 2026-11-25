@@ -1,110 +1,144 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
+using System.Globalization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ProductApi.Models;
+using TiendaPromElec.Dtos;
+using TiendaPromElec.Security;
+using TiendaPromElec.Services;
 
 namespace TiendaPromElec.Controllers
 {
+    /// <summary>
+    /// Pedidos. Todo el controlador exige iniciar sesión (H-01).
+    /// Un Cliente solo ve y crea SUS pedidos (H-02); el Admin ve todos, cambia estados y elimina.
+    /// </summary>
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
+    [Produces("application/json")]
     public class OrderController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly IOrderService _orderService;
         private readonly ILogger<OrderController> _logger;
-        // Constructor to initialize the context and logger
 
-        public OrderController(AppDbContext context, ILogger<OrderController> logger)
+        public OrderController(IOrderService orderService, ILogger<OrderController> logger)
         {
-            _context = context;
-            _logger = logger;   
+            _orderService = orderService;
+            _logger = logger;
         }
 
-        // GET: api/Order
+        /// <summary>Lista pedidos: el Admin ve todos y el Cliente solo los suyos.</summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Order>>> GetOrders()
+        [ProducesResponseType(typeof(IEnumerable<OrderDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ActionResult<IEnumerable<OrderDto>>> GetOrders()
         {
-            return await _context.Orders.ToListAsync();
+            if (!TryGetScope(out var customerId))
+            {
+                return Forbid();
+            }
+
+            return Ok(await _orderService.GetOrdersAsync(customerId));
         }
 
-        // GET: api/Order/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Order>> GetOrder(long id)
+        /// <summary>Consulta un pedido. Un Cliente que pide un pedido ajeno recibe 403.</summary>
+        [HttpGet("{id:long}")]
+        [ProducesResponseType(typeof(OrderDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<OrderDto>> GetOrder(long id)
         {
-            var order = await _context.Orders.FindAsync(id);
+            if (!TryGetScope(out var customerId))
+            {
+                return Forbid();
+            }
 
-            if (order == null)
+            var order = await _orderService.GetOrderAsync(id, customerId);
+            return order is null ? NotFound() : Ok(order);
+        }
+
+        /// <summary>Crea un pedido para el Cliente que inició sesión. El total lo calcula el servidor.</summary>
+        [HttpPost]
+        [Authorize(Policy = Policies.SoloCliente)]
+        [ProducesResponseType(typeof(OrderDto), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<ActionResult<OrderDto>> PostOrder(OrderCreateDto input)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var customerId = GetCustomerId();
+            if (customerId is null)
+            {
+                return Forbid();
+            }
+
+            var created = await _orderService.CreateOrderAsync(customerId.Value, input);
+            _logger.LogInformation("Cliente {CustomerId} creó el pedido {OrderId} por {Total}.", customerId, created.Id, created.TotalAmount);
+            return CreatedAtAction(nameof(GetOrder), new { id = created.Id }, created);
+        }
+
+        /// <summary>Cambia el estado de un pedido (solo Admin).</summary>
+        [HttpPut("{id:long}/status")]
+        [Authorize(Policy = Policies.SoloAdmin)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> PutOrderStatus(long id, OrderStatusUpdateDto input)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            if (!await _orderService.UpdateStatusAsync(id, input.Status))
             {
                 return NotFound();
             }
 
-            return order;
-        }
-
-        // PUT: api/Order/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutOrder(long id, Order order)
-        {
-            if (id != order.Id)
-            {
-                return BadRequest();
-            }
-
-            _context.Entry(order).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!OrderExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
+            _logger.LogInformation("Admin {User} cambió el pedido {OrderId} a {Status}.", User.Identity?.Name, id, input.Status);
             return NoContent();
         }
 
-        // POST: api/Order
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPost]
-        public async Task<ActionResult<Order>> PostOrder(Order order)
-        {
-            _context.Orders.Add(order);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction("GetOrder", new { id = order.Id }, order);
-        }
-
-        // DELETE: api/Order/5
-        [HttpDelete("{id}")]
+        /// <summary>Elimina un pedido (solo Admin).</summary>
+        [HttpDelete("{id:long}")]
+        [Authorize(Policy = Policies.SoloAdmin)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> DeleteOrder(long id)
         {
-            var order = await _context.Orders.FindAsync(id);
-            if (order == null)
+            if (!await _orderService.DeleteOrderAsync(id))
             {
                 return NotFound();
             }
 
-            _context.Orders.Remove(order);
-            await _context.SaveChangesAsync();
-
+            _logger.LogWarning("Admin {User} eliminó el pedido {OrderId}.", User.Identity?.Name, id);
             return NoContent();
         }
 
-        private bool OrderExists(long id)
+        /// <summary>
+        /// Define qué pedidos puede ver el usuario: Admin = todos (null); Cliente = su id de cliente.
+        /// Devuelve false si el usuario no es Admin y su token no trae id de cliente.
+        /// </summary>
+        private bool TryGetScope(out long? customerId)
         {
-            return _context.Orders.Any(e => e.Id == id);
+            if (User.IsInRole(Roles.Admin))
+            {
+                customerId = null;
+                return true;
+            }
+
+            customerId = GetCustomerId();
+            return customerId is not null;
+        }
+
+        /// <summary>H-02: el id de cliente SIEMPRE se toma del token firmado, nunca de la petición.</summary>
+        private long? GetCustomerId()
+        {
+            var value = User.FindFirst(ClaimNames.CustomerId)?.Value;
+            return long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : null;
         }
     }
 }

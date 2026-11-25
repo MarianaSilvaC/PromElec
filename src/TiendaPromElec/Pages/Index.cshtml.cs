@@ -1,23 +1,26 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.EntityFrameworkCore;
-using ProductApi.Models;
+using TiendaPromElec.Dtos;
+using TiendaPromElec.Services;
 
 namespace TiendaPromElec.Pages
 {
+    /// <summary>Catálogo público. [AllowAnonymous] es necesario por la política "denegar por defecto" (H-01).</summary>
+    [AllowAnonymous]
     public class IndexModel : PageModel
     {
-        private readonly AppDbContext _context;
+        private readonly IProductService _productService;
 
-        public IndexModel(AppDbContext context)
+        public IndexModel(IProductService productService)
         {
-            _context = context;
+            _productService = productService;
         }
 
-        public IEnumerable<Product> Product { get; set; }
+        public IReadOnlyList<ProductDto> Products { get; private set; } = Array.Empty<ProductDto>();
 
         public async Task OnGetAsync()
         {
-            Product = await _context.Products.Include(p => p.Category).ToListAsync();
+            Products = await _productService.GetAllAsync();
         }
     }
 }
