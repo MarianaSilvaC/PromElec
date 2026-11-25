@@ -7,7 +7,7 @@
 #   es más ligera y tiene menos superficie de ataque.
 #
 # Construir (desde la carpeta raíz del repositorio):
-#   docker build -t promelec-api:1.0 src/TiendaPromElec
+#   docker build -t promelec-api:1.1 src/TiendaPromElec
 # =====================================================================================
 
 # ---------- Etapa 1: compilación ----------
@@ -18,12 +18,16 @@ WORKDIR /src
 # Docker guarda esta capa en caché: si después solo cambia el código (y no los paquetes),
 # el siguiente "docker build" no vuelve a descargar las dependencias.
 COPY TiendaPromElec.csproj ./
-RUN dotnet restore TiendaPromElec.csproj
+RUN dotnet restore TiendaPromElec.csproj --runtime linux-x64
 
 # Después, el resto del código. Se compila y publica en modo Release.
+# --runtime linux-x64: solo se incluyen las librerías nativas de Linux x64 (SQL Server, SQLite),
+# no las de Windows, macOS o ARM. La imagen queda más pequeña.
 COPY . ./
 RUN dotnet publish TiendaPromElec.csproj \
         --configuration Release \
+        --runtime linux-x64 \
+        --self-contained false \
         --no-restore \
         --output /app/publish \
         /p:UseAppHost=false
@@ -41,9 +45,10 @@ EXPOSE 80
 # Solo se copia el resultado publicado de la etapa 1.
 COPY --from=build /app/publish ./
 
-# Carpeta para las llaves de Data Protection, propiedad del usuario sin privilegios.
-# docker-compose monta aquí un volumen para que las llaves persistan.
-RUN mkdir -p /app/keys && chown $APP_UID /app/keys
+# Carpetas propiedad del usuario sin privilegios, donde docker-compose monta volúmenes:
+#   /app/keys -> llaves de Data Protection (persisten entre reinicios y se comparten entre instancias)
+#   /app/data -> archivo de base de datos cuando se usa Database__Provider=Sqlite
+RUN mkdir -p /app/keys /app/data && chown $APP_UID /app/keys /app/data
 ENV DataProtection__KeysPath=/app/keys
 
 # Seguridad: el proceso NO corre como root, sino como el usuario sin privilegios "app"

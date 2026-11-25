@@ -25,11 +25,12 @@ builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
 // Base de datos
 // H-05: la cadena de conexión NO está en appsettings.json. Se lee de dotnet user-secrets
 // (desarrollo) o de la variable de entorno ConnectionStrings__DefaultConnection (Docker).
+// Database:Provider elige el motor: "SqlServer" (por defecto) o "Sqlite" (servidores con poca memoria).
 // =====================================================================================
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
-    var connectionString = serviceProvider.GetRequiredService<IConfiguration>()
-        .GetConnectionString("DefaultConnection");
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("DefaultConnection");
 
     if (string.IsNullOrWhiteSpace(connectionString))
     {
@@ -39,7 +40,19 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
             "ConnectionStrings__DefaultConnection (Docker).");
     }
 
-    options.UseSqlServer(connectionString);
+    var provider = configuration["Database:Provider"] ?? "SqlServer";
+    switch (provider.ToLowerInvariant())
+    {
+        case "sqlserver":
+            options.UseSqlServer(connectionString);
+            break;
+        case "sqlite":
+            options.UseSqlite(connectionString);
+            break;
+        default:
+            throw new InvalidOperationException(
+                $"Database:Provider '{provider}' no es válido. Usa 'SqlServer' o 'Sqlite'.");
+    }
 });
 
 // =====================================================================================

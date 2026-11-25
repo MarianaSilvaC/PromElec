@@ -32,9 +32,9 @@ services:
     restart: unless-stopped
 
   api:
-    # Por defecto usa la imagen local. En .env puedes poner API_IMAGE=tuusuario/promelec-api:1.0
+    # Por defecto usa la imagen local. En .env puedes poner API_IMAGE=marianasilcam05/promelec-api:1.1
     # para descargarla de Docker Hub en lugar de construirla.
-    image: ${API_IMAGE:-promelec-api:1.0}
+    image: ${API_IMAGE:-promelec-api:1.1}
     build:
       context: ./src/TiendaPromElec
     container_name: promelec-api

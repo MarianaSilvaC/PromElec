@@ -1,116 +1,83 @@
 # Despliegue en servidor Linux con Nginx y balanceo de carga
 
-La API se despliega en un **VPS de Hostinger con Ubuntu 24.04**:
+La API se despliega en un **VPS de Hostinger con Ubuntu 24.04** (1 vCPU, 3.8 GB de RAM). La imagen `marianasilcam05/promelec-api:1.1` corre en **dos instancias** detrás de **Nginx 1.30**, que hace de proxy inverso: fuerza HTTPS, agrega las cabeceras de seguridad y **reparte las peticiones** entre ellas (`upstream`).
 
-- **Docker** corre SQL Server y **dos instancias** de la imagen de Docker Hub `marianasilcam05/promelec-api:1.0`.
-- **Nginx**, instalado en el servidor, recibe el tráfico en los puertos 80 y 443, fuerza HTTPS, agrega las cabeceras de seguridad y **reparte las peticiones** entre las dos instancias.
+El VPS ya tiene servicios en producción (Easypanel con Traefik en los puertos 80/443, n8n y otras aplicaciones). Por eso el despliegue es **aislado**: corre junto a ellos sin modificarlos.
 
 ```
-Internet ──► Nginx :80  ──► 301 a HTTPS
-Internet ──► Nginx :443 (TLS + cabeceras de seguridad)
-                  │ upstream promelec_api (round robin)
-          ┌───────┴────────┐
-          ▼                ▼
-  promelec-api-1     promelec-api-2       ← imagen de Docker Hub, solo en 127.0.0.1
-  127.0.0.1:5000     127.0.0.1:5001
-          └───────┬────────┘
-                  ▼
-           promelec-sql (SQL Server 2022, sin puerto público)
+Internet ──► :80 / :443  ──► Traefik (Easypanel) ──► servicios existentes     ← no se toca
+Internet ──► :8088 (HTTP)  ──► promelec-nginx ──► 301 a https://IP:8443
+Internet ──► :8443 (HTTPS) ──► promelec-nginx (TLS + cabeceras de seguridad)
+                                     │ upstream promelec_api (round robin)
+                              ┌──────┴───────┐
+                              ▼              ▼
+                       promelec-api-1   promelec-api-2      ← sin puertos públicos
+                              └──────┬───────┘
+                                     ▼
+                         SQLite (volumen promelec-data)
 ```
 
-| Archivo | Va en el servidor en | Qué hace |
-|---|---|---|
-| [`deploy/docker-compose.yml`](../deploy/docker-compose.yml) | `/opt/promelec/docker-compose.yml` | SQL Server + 2 instancias de la API, con verificación de salud y llaves compartidas |
-| [`deploy/nginx/promelec.conf`](../deploy/nginx/promelec.conf) | `/etc/nginx/sites-available/promelec` | Proxy inverso, HTTPS, cabeceras de seguridad y balanceo (`upstream`) |
-| [`deploy/.env.example`](../deploy/.env.example) | (solo referencia) | Variables que necesita el `.env` del servidor; el real se genera en el paso 4 |
+### Decisiones de diseño
 
-La configuración se probó antes en una simulación local con Nginx 1.24, la misma versión de Ubuntu 24.04. Resultados en la sección 4.
+| Decisión | Motivo |
+|---|---|
+| **Puertos 8443 (HTTPS) y 8088 (HTTP)** en lugar de 443 y 80 | El 80 y el 443 ya los usa Traefik. Instalar Nginx ahí habría dejado sin servicio a las aplicaciones existentes |
+| **Nginx en un contenedor** (`nginx:1.30-alpine`), no instalado en el sistema | No modifica paquetes ni la configuración del servidor; se quita con un solo comando |
+| **SQLite en lugar de SQL Server** (`Database__Provider=Sqlite`) | SQL Server necesita al menos 2 GB de RAM y el VPS solo tenía 2.5 GB libres. Con SQLite todo el despliegue usa unos **130 MB**. Es el mismo motor que usan las 20 pruebas de integración |
+| **Límites de memoria y CPU** (256 MB y 0.5 CPU por instancia, 64 MB Nginx) | Garantizan que PromElec nunca le quite recursos a los servicios en producción |
+| **Proyecto, red y volúmenes propios** (`promelec-prod`) | Sin choques de nombres ni de red con lo que ya existe |
+| **Certificado autofirmado para la IP** | No hay dominio, y Let's Encrypt necesita el puerto 80, que es de Traefik |
+| **Sin `ufw`** | El firewall de Hostinger ya filtra los puertos, y activar `ufw` podría cortar la red de Docker Swarm que usa Easypanel |
+
+| Archivo | Va en el VPS en |
+|---|---|
+| [`deploy/docker-compose.yml`](../deploy/docker-compose.yml) | `/opt/promelec/docker-compose.yml` |
+| [`deploy/nginx/promelec.conf`](../deploy/nginx/promelec.conf) | `/opt/promelec/nginx/promelec.conf` |
+| [`deploy/.env.example`](../deploy/.env.example) | (solo referencia: el `.env` real se genera en el paso 3) |
 
 ---
 
-## 1. Antes de empezar
+## 1. Pasos
 
-- La **IP pública** del VPS: hPanel → VPS → *Información general*. En esta guía aparece como `TU_IP`.
-- La **contraseña de root** del VPS, o una llave SSH configurada.
-- Si en hPanel → VPS → *Firewall* tienes reglas activas, permite los puertos **22, 80 y 443**.
-- Sube a Docker Hub la versión más reciente de la imagen. Desde tu PC, en la carpeta `PromElec`:
+Los pasos marcados como **[PC]** se ejecutan en PowerShell en tu computadora. Los marcados como **[VPS]** se ejecutan dentro de la sesión SSH. **[hPanel]** es el panel web de Hostinger.
+
+### Paso 0 · Subir la imagen 1.1 a Docker Hub **[PC]**
 
 ```powershell
-docker push marianasilcam05/promelec-api:1.0
+docker push marianasilcam05/promelec-api:1.1
 docker push marianasilcam05/promelec-api:latest
 ```
 
----
+### Paso 1 · Abrir los puertos 8443 y 8088 **[hPanel]**
 
-## 2. Pasos en el servidor
+En **VPS → Firewall**, agrega dos reglas y presiona **Sincronizar**:
 
-Los comandos marcados como **[PC]** se ejecutan en PowerShell en tu computadora. Los marcados como **[VPS]** se ejecutan en el servidor, dentro de la sesión SSH, como `root`.
+| Acción | Protocolo | Puerto | Fuente |
+|---|---|---|---|
+| Accept | TCP | 8443 | Any |
+| Accept | TCP | 8088 | Any |
 
-### Paso 1 · Conectarse por SSH **[PC]**
+### Paso 2 · Conectarse y comprobar que no hay nada con el mismo nombre **[PC] → [VPS]**
 
 ```powershell
-ssh root@TU_IP
+ssh -i "C:\Users\Mariana\.ssh\promelec_vps" root@TU_IP
 ```
 
-La primera vez pregunta si confías en el servidor: escribe `yes`. Luego escribe la contraseña de root (no se ve al escribir).
-
-### Paso 2 · Revisar el servidor **[VPS]**
-
 ```bash
-lsb_release -ds; uname -m; free -h | head -2; nproc
-ss -tlnp | grep -E ':(80|443|5000|5001)\b' || echo "Puertos 80, 443, 5000 y 5001 libres"
-docker --version; docker compose version
+ls /opt/promelec 2>/dev/null && echo "YA EXISTE /opt/promelec: detente" || echo "OK: /opt/promelec no existe"
+docker ps -a --format '{{.Names}}' | grep -E '^promelec' && echo "YA HAY contenedores promelec: detente" || echo "OK: sin contenedores promelec"
+ss -tlnp | grep -E ':(8443|8088)\b' && echo "PUERTO OCUPADO: detente" || echo "OK: 8443 y 8088 libres"
 ```
 
-Qué debe salir:
+Las tres líneas deben decir **OK**.
 
-- `Ubuntu 24.04...`, la arquitectura **`x86_64`** (SQL Server no corre en ARM) y **4 GB** de RAM o más.
-- `Puertos ... libres`. Si aparece otro programa en el 80 o el 443 (por ejemplo `apache2`), **detente** y revisa qué es antes de seguir: podría ser otro sitio tuyo.
-- Si `docker --version` muestra una versión, Docker ya está instalado; en el paso 3 usa la opción B.
-
-### Paso 3 · Instalar Docker, Nginx y el firewall **[VPS]**
-
-**Opción A**, si Docker NO está instalado:
+### Paso 3 · Carpetas y secretos **[VPS]**
 
 ```bash
-apt update && apt upgrade -y
-apt install -y docker.io docker-compose-v2 nginx openssl ufw
-systemctl enable --now docker nginx
-```
-
-**Opción B**, si Docker YA está instalado (plantilla "Ubuntu 24.04 with Docker"):
-
-```bash
-apt update && apt upgrade -y
-apt install -y nginx openssl ufw
-systemctl enable --now nginx
-```
-
-Firewall: solo SSH, HTTP y HTTPS. Los puertos 5000 y 5001 **no** se abren, porque solo los usa Nginx dentro del servidor.
-
-```bash
-ufw allow OpenSSH
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw --force enable
-ufw status
-```
-
-> ⚠️ Es importante ejecutar `ufw allow OpenSSH` **antes** de `ufw --force enable`, o perderías la conexión SSH.
-
-### Paso 4 · Carpeta del proyecto y secretos **[VPS]**
-
-```bash
-mkdir -p /opt/promelec && cd /opt/promelec
-IP=$(hostname -I | awk '{print $1}'); echo "IP detectada: $IP"
-```
-
-Revisa que la IP detectada sea la misma de hPanel. Si no, escríbela a mano: `IP=TU_IP`. Luego genera el `.env` con valores **aleatorios**:
-
-```bash
+mkdir -p /opt/promelec/nginx /opt/promelec/ssl && cd /opt/promelec
+IP=TU_IP
 cat > .env <<EOF
 SERVER_HOST=$IP
-MSSQL_SA_PASSWORD=Sql-$(openssl rand -hex 12)-Aa9
 JWT_KEY=$(openssl rand -base64 48 | tr -d '\n')
 ADMIN_PASSWORD=Adm-$(openssl rand -hex 8)-Bb7
 EOF
@@ -118,18 +85,28 @@ chmod 600 .env
 cut -d= -f1 .env
 ```
 
-El último comando muestra solo los **nombres** de las variables, no los valores. El archivo solo lo puede leer root (`chmod 600`).
+Cambia `TU_IP` por la IP del VPS. El último comando muestra solo los **nombres** de las variables, no sus valores.
 
-### Paso 5 · Copiar la configuración al servidor **[PC]**
+### Paso 4 · Copiar la configuración **[PC]**
 
-En **otra** ventana de PowerShell (no en la de SSH), desde la carpeta `PromElec`:
+En **otra** ventana de PowerShell, desde la carpeta `PromElec`:
 
 ```powershell
-scp deploy/docker-compose.yml root@TU_IP:/opt/promelec/
-scp deploy/nginx/promelec.conf root@TU_IP:/etc/nginx/sites-available/promelec
+scp -i "C:\Users\Mariana\.ssh\promelec_vps" deploy/docker-compose.yml root@TU_IP:/opt/promelec/
+scp -i "C:\Users\Mariana\.ssh\promelec_vps" deploy/nginx/promelec.conf root@TU_IP:/opt/promelec/nginx/
 ```
 
-### Paso 6 · Levantar los contenedores **[VPS]**
+### Paso 5 · Certificado HTTPS autofirmado **[VPS]**
+
+```bash
+cd /opt/promelec
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout ssl/promelec.key -out ssl/promelec.crt \
+  -subj "/CN=$IP" -addext "subjectAltName=IP:$IP"
+ls -l ssl
+```
+
+### Paso 6 · Levantar PromElec **[VPS]**
 
 ```bash
 cd /opt/promelec
@@ -138,108 +115,102 @@ docker compose up -d
 docker compose ps
 ```
 
-La primera vez descarga unos 2 GB. Espera a que `promelec-sql`, `promelec-api-1` y `promelec-api-2` digan **(healthy)**; repite `docker compose ps` cada 30 segundos. Luego comprueba cada instancia directamente:
-
-```bash
-curl -s http://localhost:5000/health; echo
-curl -s http://localhost:5001/health; echo
-```
-
-Las dos deben responder `Healthy`.
-
-### Paso 7 · Certificado HTTPS autofirmado para la IP **[VPS]**
-
-```bash
-mkdir -p /etc/nginx/ssl
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout /etc/nginx/ssl/promelec.key -out /etc/nginx/ssl/promelec.crt \
-  -subj "/CN=$IP" -addext "subjectAltName=IP:$IP"
-chmod 600 /etc/nginx/ssl/promelec.key
-```
-
-Si abriste una sesión SSH nueva, vuelve a definir la IP antes: `IP=$(grep SERVER_HOST /opt/promelec/.env | cut -d= -f2)`.
-
-### Paso 8 · Activar el sitio en Nginx **[VPS]**
-
-```bash
-ln -sf /etc/nginx/sites-available/promelec /etc/nginx/sites-enabled/promelec
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
-```
-
-`nginx -t` debe decir `syntax is ok` y `test is successful`.
+Tarda unos 30 a 60 segundos. Al final, `promelec-api-1` y `promelec-api-2` deben decir **(healthy)** y `promelec-nginx` debe decir **Up**.
 
 ---
 
-## 3. Verificación
+## 2. Verificación
 
-**En el servidor [VPS]:**
+**En el VPS:**
 
 ```bash
-# HTTP redirige a HTTPS (301)
-curl -sI http://$IP/api/Product | head -3
+# Configuración de Nginx
+docker exec promelec-nginx nginx -t
+
+# HTTP redirige a HTTPS (301 a :8443)
+curl -sI http://$IP:8088/api/Product | head -3
 
 # La API responde por HTTPS (-k acepta el certificado autofirmado)
-curl -sk https://$IP/api/Product/2; echo
+curl -sk https://$IP:8443/api/Product/2; echo
 
-# Balanceo: X-Upstream alterna entre 127.0.0.1:5000 y 127.0.0.1:5001
-for i in 1 2 3 4 5 6; do curl -sk -o /dev/null -D - https://$IP/api/Product/1 | grep -i x-upstream; done
+# Balanceo: X-Upstream alterna entre las dos instancias
+for i in 1 2 3 4 5 6; do curl -sk -o /dev/null -D - https://$IP:8443/api/Product/1 | grep -i x-upstream; done
 
 # Cabeceras de seguridad
-curl -skI https://$IP/ | grep -iE 'strict-transport|x-frame|x-content|referrer|permissions|content-security|server'
-```
+curl -skI https://$IP:8443/ | grep -iE 'strict-transport|x-frame|x-content|referrer|permissions|content-security|server'
 
-**Tolerancia a fallas [VPS]:** se apaga una instancia y la API sigue respondiendo con la otra.
-
-```bash
+# Tolerancia a fallas: con una instancia apagada todo sigue respondiendo 200
 docker stop promelec-api-2
-for i in 1 2 3 4; do curl -sk -o /dev/null -D - https://$IP/api/Product/1 | grep -iE '^HTTP|x-upstream'; done
+for i in 1 2 3 4; do curl -sk -o /dev/null -D - https://$IP:8443/api/Product/1 | grep -iE '^HTTP|x-upstream'; done
 docker start promelec-api-2
+
+# Recursos usados (con sus límites)
+docker stats --no-stream promelec-api-1 promelec-api-2 promelec-nginx
 ```
 
 **Desde tu PC:**
 
-- Navegador: `https://TU_IP/`. Aparece una advertencia por el certificado autofirmado: *Configuración avanzada → Continuar*. Debe verse el catálogo.
-- PowerShell: `curl.exe -k https://TU_IP/api/Product/2` y `curl.exe -k -i https://TU_IP/api/Order` (este último debe dar 401).
-- Contraseña del Admin, para iniciar sesión **[VPS]**: `grep ADMIN_PASSWORD /opt/promelec/.env`.
+- Navegador: **`https://TU_IP:8443/`**. Aparece una advertencia por el certificado autofirmado: *Configuración avanzada → Continuar*. Debe verse el catálogo.
+- PowerShell: `curl.exe -k https://TU_IP:8443/api/Product/2` y `curl.exe -k -i https://TU_IP:8443/api/Order` (el segundo debe responder 401).
+- Contraseña del Admin **[VPS]**: `grep ADMIN_PASSWORD /opt/promelec/.env`.
+
+**Evidencias sugeridas (capturas):** `docker compose ps`, `nginx -t`, la alternancia de `X-Upstream`, la prueba con una instancia apagada, `docker stats` y el navegador con `https://TU_IP:8443/`.
 
 ---
 
-## 4. Resultados de la simulación previa (25/11/2026)
+## 3. Resultados de la simulación previa (25/11/2026)
 
-Antes de tocar el VPS, se levantó el mismo `deploy/docker-compose.yml` en local con un contenedor `nginx:1.24` y la misma configuración. Solo cambiaron las direcciones del `upstream`, porque ahí Nginx corría en Docker.
+Antes de tocar el VPS se ejecutaron **los mismos archivos y comandos** en local, con `127.0.0.1` como IP:
 
 | Prueba | Resultado |
 |---|---|
-| `nginx -t` | Sintaxis correcta |
-| SQL Server, instancia 1 e instancia 2 | Las tres en estado *healthy*; la instancia 2 arranca cuando la 1 ya terminó las migraciones |
-| `http://` | 301 a `https://` |
-| 8 peticiones seguidas | Alternan instancia 1, 2, 1, 2... (`X-Upstream`) |
-| Cabeceras | HSTS, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` y CSP, cada una **una sola vez**; `Server: nginx` sin versión |
-| Login del Admin y `GET /api/Order` | 200; sin token, 401 |
-| Formulario de Contacto con la página abierta en una instancia y enviado a la otra | Aceptado (200): las instancias comparten las llaves de Data Protection |
-| Instancia 2 apagada | Todas las peticiones 200: Nginx reintenta en la instancia 1 |
-| IP registrada en el log de la API | La del cliente, no la de Nginx (cabeceras `X-Forwarded-*`) |
-
-Durante la simulación se encontraron y corrigieron dos detalles:
-
-1. **Sin `zone` en el `upstream`**, las primeras peticiones caían todas en la instancia 1, porque cada proceso de Nginx llevaba su propio turno. Con `zone promelec_api 64k;` el turno se comparte y el balanceo alterna.
-2. **El formulario de Contacto por HTTP plano respondía 500**, porque la cookie antiforgery exige HTTPS. Ahora la página tiene `[RequireHttps]` y redirige a HTTPS.
+| Arranque | Instancia 1 sana → instancia 2 sana → Nginx; `nginx -t` correcto |
+| `http://…:8088` | 301 a `https://…:8443` |
+| Acceso directo a las APIs | Imposible: no publican puertos |
+| 8 peticiones seguidas | Alternan entre las dos instancias (`X-Upstream`) |
+| Cabeceras | HSTS, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` y CSP, cada una una sola vez; `Server: nginx` sin versión |
+| Escritura en SQLite desde las dos instancias | Registro y 3 pedidos repartidos entre ambas; totales calculados por el servidor |
+| Pedido ajeno / borrar un producto con pedidos | 403 / 409 |
+| URL generada por la API (`Location`) | `https://127.0.0.1:8443/api/Product/11`: incluye el puerto público |
+| Formulario de Contacto abierto en una instancia y enviado a la otra | Aceptado: las llaves se comparten |
+| Instancia 2 apagada | Todas las peticiones 200 |
+| Memoria | API-1 77 MB, API-2 41 MB, Nginx 14 MB (≈130 MB en total) |
+| `docker compose restart` | Los datos persisten |
 
 ---
 
-## 5. Seguridad del despliegue
+## 4. Seguridad del despliegue
 
 | Medida | Dónde |
 |---|---|
-| Solo se abren los puertos 22, 80 y 443 | `ufw` (paso 3) |
-| La API (5000 y 5001) y SQL Server no son accesibles desde internet | `127.0.0.1:` en `ports` y SQL sin `ports` |
-| HTTP redirige siempre a HTTPS; TLS 1.2 y 1.3 | `promelec.conf` |
+| Solo los puertos 22, 80, 443, 8088 y 8443 están abiertos a internet | Firewall de Hostinger |
+| Las instancias de la API no publican puertos; solo Nginx las alcanza | `deploy/docker-compose.yml` (sin `ports` en `api1` y `api2`) |
+| HTTP siempre redirige a HTTPS; TLS 1.2 y 1.3 | `deploy/nginx/promelec.conf` |
 | Cabeceras de seguridad centralizadas en Nginx, sin versión del servidor | `add_header`, `proxy_hide_header`, `server_tokens off` |
 | Peticiones de más de 1 MB rechazadas | `client_max_body_size 1m` |
-| Secretos aleatorios en `.env` con permisos 600; certificado con permisos 600 | Pasos 4 y 7 |
+| Secretos aleatorios en `.env` con permisos 600 | Paso 3 |
 | La API conoce la IP real del cliente (límite de intentos por IP) | `X-Forwarded-For` + `ASPNETCORE_FORWARDEDHEADERS_ENABLED` |
-| Tolerancia a fallas | `max_fails`, `fail_timeout`, `proxy_next_upstream` |
+| Tolerancia a fallas | `max_fails`, `fail_timeout`, `proxy_next_upstream`, `restart: unless-stopped` |
+| Aislamiento de recursos | `mem_limit` y `cpus` por contenedor |
+
+---
+
+## 5. Operación
+
+```bash
+cd /opt/promelec
+docker compose logs -f api1                 # ver el log de una instancia
+docker compose pull && docker compose up -d # actualizar a una nueva imagen
+```
+
+**Quitar todo** (el servidor queda como estaba antes):
+
+```bash
+cd /opt/promelec && docker compose down -v
+rm -rf /opt/promelec
+```
+
+Después borra las reglas 8443 y 8088 en el firewall de hPanel.
 
 ---
 
@@ -247,19 +218,17 @@ Durante la simulación se encontraron y corrigieron dos detalles:
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `ssh: connect ... timed out` | IP incorrecta o el firewall de Hostinger bloquea el puerto 22 | Revisa la IP y el firewall en hPanel |
-| `docker.io : Conflicts: containerd.io` en el paso 3 | Docker ya venía instalado | Usa la opción B del paso 3 |
-| Un contenedor `promelec-api-*` queda *unhealthy* o se reinicia | Error al arrancar | `docker compose logs api1` (o `api2`) |
-| `promelec-sql` se detiene | Memoria insuficiente | `free -h`: SQL Server necesita al menos 2 GB libres |
-| `400 Bad Request - Invalid Hostname` | `SERVER_HOST` no coincide con la IP que usas | Corrige `.env` y ejecuta `docker compose up -d` |
-| `502 Bad Gateway` | Las instancias de la API no están arriba | `docker compose ps` y `docker compose logs` |
-| `nginx: [emerg] bind() to 0.0.0.0:80 failed` | Otro programa usa el puerto 80 | `ss -tlnp | grep :80` para ver cuál es |
+| El navegador no carga `https://IP:8443` (tiempo de espera) | Faltan las reglas del firewall o no se sincronizaron | Paso 1 y botón **Sincronizar** |
+| `400 Bad Request - Invalid Hostname` | `SERVER_HOST` en `.env` no coincide con la IP que usas | Corrige `.env` y ejecuta `docker compose up -d` |
+| `502 Bad Gateway` | Las instancias no están sanas | `docker compose ps` y `docker compose logs api1` |
+| `promelec-api-*` se reinicia una y otra vez | Falta una variable en `.env` o la imagen no se descargó | `docker compose logs api1`; revisa el paso 0 |
+| `docker compose pull` falla con `not found` | La imagen 1.1 no se subió a Docker Hub | Paso 0 |
 
 ---
 
 ## 7. Mejoras posibles
 
-- Con un dominio, cambiar el certificado autofirmado por uno gratuito y válido de **Let's Encrypt**: `apt install certbot python3-certbot-nginx` y `certbot --nginx -d tudominio.com`.
-- Iniciar sesión por SSH con llave en lugar de contraseña, y desactivar el acceso con contraseña.
-- `fail2ban` para bloquear IPs que intentan adivinar la contraseña de SSH.
-- Respaldos automáticos del volumen de SQL Server.
+- Con un dominio propio, publicar PromElec a través del Traefik existente en el puerto 443, con un certificado válido de Let's Encrypt.
+- Con más memoria (o un servidor dedicado), volver a SQL Server: basta con cambiar `Database__Provider` y la cadena de conexión.
+- Respaldos automáticos del volumen `promelec-data`.
+- Iniciar sesión SSH solo con llave y desactivar el acceso con contraseña.

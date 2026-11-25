@@ -1,6 +1,6 @@
 # Dockerización — TiendaPromElec
 
-La API corre en un contenedor Docker a partir de la imagen `promelec-api:1.0` (349 MB). Usa como base la imagen oficial `mcr.microsoft.com/dotnet/aspnet:8.0`, escucha en el **puerto 80** y obtiene su base de datos de un contenedor de **SQL Server 2022**. Las dos piezas se levantan juntas con `docker compose`.
+La API corre en un contenedor Docker a partir de la imagen `promelec-api:1.1` (345 MB). Usa como base la imagen oficial `mcr.microsoft.com/dotnet/aspnet:8.0`, escucha en el **puerto 80** y obtiene su base de datos de un contenedor de **SQL Server 2022**. Las dos piezas se levantan juntas con `docker compose`.
 
 | Archivo | Para qué sirve |
 |---|---|
@@ -30,6 +30,8 @@ La imagen se construye en **dos etapas (multi-stage)**:
 | Contexto mínimo | `.dockerignore` excluye `bin/`, `obj/`, `appsettings.Development.json`, `*.env`, certificados | Construcción más rápida; no se cuelan archivos locales ni sensibles |
 | Modo producción | `ASPNETCORE_ENVIRONMENT=Production` | Sin Swagger, con HSTS y sin páginas de error detalladas |
 | Llaves persistentes | Carpeta `/app/keys` (propiedad de `app`) montada como volumen | Los tokens antiforgery siguen siendo válidos tras reiniciar y entre varias instancias |
+| Solo librerías de Linux x64 | `dotnet publish --runtime linux-x64` | No se incluyen librerías nativas de Windows, macOS ni ARM: la 1.1 pesa 345 MB en lugar de 401 MB |
+| Motor de base de datos configurable | `Database__Provider=SqlServer` (por defecto) o `Sqlite`, con la carpeta `/app/data` para el archivo | La misma imagen sirve con SQL Server (local) o con SQLite (servidores con poca memoria, como el VPS de [Despliegue.md](Despliegue.md)) |
 
 ---
 
@@ -59,7 +61,7 @@ docker compose ps
 
 Qué ocurre:
 
-1. Se construye la imagen `promelec-api:1.0`.
+1. Se construye la imagen `promelec-api:1.1`.
 2. Arranca `promelec-sql` (SQL Server 2022 Express). Su puerto **no** se publica fuera de Docker.
 3. Compose espera a que SQL Server esté sano (`healthcheck` con `sqlcmd`) y luego arranca `promelec-api`.
 4. Al arrancar, la API aplica las migraciones, crea los roles y el usuario `admin@promelec.local` con la contraseña de `ADMIN_PASSWORD`.
@@ -78,13 +80,13 @@ docker compose down -v     # además BORRA los volúmenes (base de datos y llave
 
 ```powershell
 # 1. Construir la imagen
-docker build -t promelec-api:1.0 src/TiendaPromElec
+docker build -t promelec-api:1.1 src/TiendaPromElec
 
 # 2. Levantar solo la base de datos (si no está arriba)
 docker compose up -d sqlserver
 
 # 3. Ejecutar la API conectada a la red de compose, con los secretos en api.env
-docker run -d --name promelec-api-run --network promelec_default -p 8081:80 --env-file api.env -v promelec_promelec-keys:/app/keys promelec-api:1.0
+docker run -d --name promelec-api-run --network promelec_default -p 8081:80 --env-file api.env -v promelec_promelec-keys:/app/keys promelec-api:1.1
 ```
 
 La API queda en **http://localhost:8081**. Se usa `--env-file` en lugar de `-e` para que los secretos no aparezcan en la pantalla ni en el historial de la terminal. Para detenerla: `docker rm -f promelec-api-run`.
@@ -125,24 +127,24 @@ Hazlo con tu cuenta; necesitas un usuario en [hub.docker.com](https://hub.docker
 # 1. Iniciar sesión (te pide el token; pégalo, no se ve al escribir)
 docker login -u TU_USUARIO
 
-# 2. Etiquetar la imagen con tu usuario: versión 1.0 y latest
-docker tag promelec-api:1.0 TU_USUARIO/promelec-api:1.0
-docker tag promelec-api:1.0 TU_USUARIO/promelec-api:latest
+# 2. Etiquetar la imagen con tu usuario: versión 1.1 y latest
+docker tag promelec-api:1.1 TU_USUARIO/promelec-api:1.1
+docker tag promelec-api:1.1 TU_USUARIO/promelec-api:latest
 
 # 3. Subir las dos etiquetas
-docker push TU_USUARIO/promelec-api:1.0
+docker push TU_USUARIO/promelec-api:1.1
 docker push TU_USUARIO/promelec-api:latest
 ```
 
-**Imagen publicada del proyecto:** [hub.docker.com/r/marianasilcam05/promelec-api](https://hub.docker.com/r/marianasilcam05/promelec-api), con las etiquetas `1.0` y `latest`.
+**Imagen publicada del proyecto:** [hub.docker.com/r/marianasilcam05/promelec-api](https://hub.docker.com/r/marianasilcam05/promelec-api), con las etiquetas `1.0`, `1.1` y `latest` (la 1.1 es la versión actual).
 
 Para descargarla y ejecutarla en cualquier equipo con Docker:
 
 ```powershell
-docker pull marianasilcam05/promelec-api:1.0
+docker pull marianasilcam05/promelec-api:1.1
 ```
 
-Para usar la imagen publicada en otra máquina (por ejemplo, un servidor Linux), en `.env` pon `API_IMAGE=marianasilcam05/promelec-api:1.0` y ejecuta `docker compose pull api` y `docker compose up -d`.
+Para usar la imagen publicada en otra máquina (por ejemplo, un servidor Linux), en `.env` pon `API_IMAGE=marianasilcam05/promelec-api:1.1` y ejecuta `docker compose pull api` y `docker compose up -d`.
 
 ---
 
@@ -159,5 +161,5 @@ Para usar la imagen publicada en otra máquina (por ejemplo, un servidor Linux),
 
 - Usar la variante *chiseled* de la imagen de .NET (`aspnet:8.0-jammy-chiseled-extra`), que no trae shell ni gestor de paquetes y pesa menos.
 - Crear un usuario de SQL Server con permisos mínimos para la API, en lugar de `sa`.
-- Escanear la imagen en busca de vulnerabilidades con `docker scout cves promelec-api:1.0`.
+- Escanear la imagen en busca de vulnerabilidades con `docker scout cves promelec-api:1.1`.
 - Guardar los secretos en un gestor (Docker secrets, Azure Key Vault) en lugar de archivos `.env`.

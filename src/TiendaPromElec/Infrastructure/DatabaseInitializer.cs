@@ -7,7 +7,8 @@ namespace TiendaPromElec.Infrastructure;
 
 /// <summary>
 /// Prepara la base de datos al arrancar:
-/// 1. Aplica las migraciones pendientes (SQL Server) o crea el esquema (SQLite en las pruebas).
+/// 1. Aplica las migraciones pendientes (SQL Server) o crea el esquema con los datos semilla
+///    (SQLite: pruebas de integración y servidores con poca memoria).
 /// 2. Crea los roles Admin y Cliente.
 /// 3. Crea el usuario Admin inicial con la contraseña del secreto SeedAdmin:Password (H-05).
 /// </summary>
