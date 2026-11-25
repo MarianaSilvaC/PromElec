@@ -1,0 +1,24 @@
+# Archivos que NO se envían a Docker al construir la imagen.
+# Así la construcción es más rápida y no se cuelan archivos locales ni sensibles.
+
+# Resultados de compilación locales (Docker compila de nuevo dentro del contenedor)
+bin/
+obj/
+
+# Configuración y archivos solo para desarrollo
+appsettings.Development.json
+Properties/launchSettings.json
+*.http
+.vscode/
+.vs/
+
+# Archivos de Docker y de entorno (pueden tener secretos)
+Dockerfile
+.dockerignore
+.env
+*.env
+
+# Certificados y llaves
+*.pfx
+*.key
+*.pem

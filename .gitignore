@@ -490,6 +490,9 @@ $RECYCLE.BIN/
 # Configuración local de herramientas de asistencia (no forma parte del proyecto)
 .claude/
 
+# Archivos de secretos para Docker (api.env, etc.). Las plantillas *.env.example sí se suben.
+*.env
+
 # Certificados y llaves locales (nunca se suben al repositorio)
 *.pfx
 *.key

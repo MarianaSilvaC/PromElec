@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -184,6 +185,15 @@ builder.Services.Configure<CookiePolicyOptions>(options =>
     options.HttpOnly = Microsoft.AspNetCore.CookiePolicy.HttpOnlyPolicy.Always;
     options.Secure = CookieSecurePolicy.Always;
 });
+
+// Llaves de Data Protection (firman los tokens antiforgery). En Docker se guardan en un volumen
+// (DataProtection:KeysPath) para que sobrevivan a reinicios y las compartan varias instancias.
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("PromElec.TiendaApi");
+var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+}
 
 // =====================================================================================
 // H-06: HSTS (el navegador recordará usar solo HTTPS durante un año)
