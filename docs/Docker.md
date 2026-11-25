@@ -134,9 +134,15 @@ docker push TU_USUARIO/promelec-api:1.0
 docker push TU_USUARIO/promelec-api:latest
 ```
 
-Enlace de la imagen: `https://hub.docker.com/r/TU_USUARIO/promelec-api`
+**Imagen publicada del proyecto:** [hub.docker.com/r/marianasilcam05/promelec-api](https://hub.docker.com/r/marianasilcam05/promelec-api), con las etiquetas `1.0` y `latest`.
 
-Para usar la imagen publicada en otra máquina (por ejemplo, el servidor Linux de la Fase 7), en `.env` pon `API_IMAGE=TU_USUARIO/promelec-api:1.0` y ejecuta `docker compose pull api` y `docker compose up -d`.
+Para descargarla y ejecutarla en cualquier equipo con Docker:
+
+```powershell
+docker pull marianasilcam05/promelec-api:1.0
+```
+
+Para usar la imagen publicada en otra máquina (por ejemplo, un servidor Linux), en `.env` pon `API_IMAGE=marianasilcam05/promelec-api:1.0` y ejecuta `docker compose pull api` y `docker compose up -d`.
 
 ---
 

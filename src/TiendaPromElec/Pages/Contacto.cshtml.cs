@@ -8,8 +8,11 @@ namespace TiendaPromElec.Pages
     /// <summary>
     /// Formulario público de contacto. Sirve para demostrar la protección CSRF (H-09):
     /// Razor Pages valida el token antiforgery en cada POST de forma automática.
+    /// [RequireHttps]: la cookie antiforgery es Secure, así que el formulario solo se sirve por HTTPS
+    /// (por HTTP se redirige en lugar de fallar).
     /// </summary>
     [AllowAnonymous]
+    [RequireHttps]
     public class ContactoModel : PageModel
     {
         private readonly ILogger<ContactoModel> _logger;

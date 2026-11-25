@@ -1,0 +1,82 @@
+# =====================================================================================
+# PromElec en el SERVIDOR LINUX: SQL Server + DOS instancias de la API.
+# Nginx (instalado en el servidor, fuera de Docker) recibe el tráfico en 80/443 y
+# reparte las peticiones entre las dos instancias (ver deploy/nginx/promelec.conf).
+#
+#   docker compose up -d       -> descarga la imagen de Docker Hub y levanta todo
+#   docker compose ps          -> estado
+#   docker compose logs -f     -> logs
+#
+# Los secretos se leen del archivo .env de esta misma carpeta (no se sube a git).
+# =====================================================================================
+name: promelec
+
+x-api: &api
+  image: ${API_IMAGE:-marianasilcam05/promelec-api:1.0}   # imagen publicada en Docker Hub
+  environment: &api-env
+    ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=PromElec;User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True"
+    Jwt__Key: ${JWT_KEY:?Falta JWT_KEY en el archivo .env}
+    SeedAdmin__Password: ${ADMIN_PASSWORD:?Falta ADMIN_PASSWORD en el archivo .env}
+    # Nombres de host aceptados: la IP pública del servidor (Nginx la reenvía) y localhost (para el healthcheck).
+    AllowedHosts: "${SERVER_HOST:?Falta SERVER_HOST en el archivo .env};localhost"
+    # La API está detrás de Nginx: confía en X-Forwarded-Proto / X-Forwarded-For para saber
+    # que la conexión original fue HTTPS y cuál es la IP real del cliente (rate limiting por IP).
+    # Es seguro porque las instancias SOLO escuchan en 127.0.0.1: nadie más que Nginx las alcanza.
+    ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+  volumes:
+    - promelec-keys:/app/keys   # llaves de Data Protection COMPARTIDAS por las dos instancias
+  healthcheck:
+    # La imagen de .NET no trae curl: se consulta /health con bash puro.
+    test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/80 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+    interval: 15s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
+  restart: unless-stopped
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: promelec-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Express"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Falta MSSQL_SA_PASSWORD en el archivo .env}
+      MSSQL_MEMORY_LIMIT_MB: "2048"   # límite de memoria para un VPS de 4 GB
+    volumes:
+      - promelec-sqldata:/var/opt/mssql
+    # Sin "ports": SQL Server NO es accesible desde internet.
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q \"SELECT 1\" -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    restart: unless-stopped
+
+  # Instancia 1: aplica las migraciones y crea el Admin al arrancar.
+  api1:
+    <<: *api
+    container_name: promelec-api-1
+    ports:
+      - "127.0.0.1:5000:80"   # solo accesible desde el propio servidor (Nginx)
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  # Instancia 2: arranca cuando la 1 ya está sana (así no compiten al crear las tablas).
+  api2:
+    <<: *api
+    container_name: promelec-api-2
+    environment:
+      <<: *api-env
+      Database__ApplyMigrationsOnStartup: "false"
+    ports:
+      - "127.0.0.1:5001:80"
+    depends_on:
+      api1:
+        condition: service_healthy
+
+volumes:
+  promelec-sqldata:
+  promelec-keys:
