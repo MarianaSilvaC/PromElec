@@ -493,6 +493,11 @@ $RECYCLE.BIN/
 # Archivos de secretos para Docker (api.env, etc.). Las plantillas *.env.example sí se suben.
 *.env
 
+# Bases de datos SQLite locales (modo desarrollo con Database:Provider=Sqlite)
+*.db
+*.db-shm
+*.db-wal
+
 # Certificados y llaves locales (nunca se suben al repositorio)
 *.pfx
 *.key
